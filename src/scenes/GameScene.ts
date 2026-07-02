@@ -39,7 +39,6 @@ export class GameScene extends Phaser.Scene {
   private gridStartY: number = 0
   private cols:       number = 9
 
-  // Drum — single container, rocks as one unit (clean, no stick hacks)
   private drumContainer!: Phaser.GameObjects.Container
   private drumBody!:      Phaser.GameObjects.Graphics
   private drumGlow!:      Phaser.GameObjects.Graphics
@@ -60,8 +59,6 @@ export class GameScene extends Phaser.Scene {
   private aurora2!:    Phaser.GameObjects.Graphics
   private auroraTime:  number = 0
 
-  // gridContainer holds ALL selection-screen objects — one setVisible(false)
-  // hides everything cleanly when transitioning to drum/reveal phases
   private gridContainer!: Phaser.GameObjects.Container
 
   constructor() { super('GameScene') }
@@ -140,30 +137,51 @@ export class GameScene extends Phaser.Scene {
     this.ballGap  = Math.max(2, Math.floor(gridW / (this.cols * 5.5)))
     this.ballSize = Math.min(36, Math.floor((gridW - (this.cols - 1) * this.ballGap) / this.cols))
 
-    // ── Zone heights — strict so nothing overlaps ──────────────────────
-    // Header: title + subtitle + badge, minimum 88px
-    const headerH   = Math.max(88, Math.round(H * 0.15))
-    // Grid: 10 rows
+    // ── FIXED layout — work bottom-up so confirm button is always on screen ──
+    //
+    // Reserve space from the bottom:
+    //   36px  confirm button margin from bottom
+    //   40px  confirm button height
+    //   28px  count label above button
+    //   8px   gap
+    // = 112px minimum footer clearance from bottom
+    //
+    // Then fit header (title + subtitle + badge) at the top.
+    // The grid fills whatever remains in between.
+
+    const BTN_H        = 40
+    const BTN_MARGIN_B = 28   // gap from very bottom of canvas
+    const BTN_MARGIN_T = 10   // gap above button (between count label and btn)
+    const COUNT_H      = 20   // height of count text
+    const COUNT_GAP    = 8    // gap between grid bottom and count text
+
+    // Pin confirm button Y from bottom — guaranteed on screen
+    this.btnY = H - BTN_MARGIN_B - BTN_H / 2
+
+    const countY    = this.btnY - BTN_H / 2 - BTN_MARGIN_T - COUNT_H / 2
+    const gridBottom = countY - COUNT_GAP
+
+    // Header — fit in whatever space is above the grid
     const rowH      = this.ballSize + this.ballGap
     const gridH     = 10 * rowH
-    // Footer: count label + confirm button
-    const footerH   = H - headerH - gridH
-    const footerPad = Math.max(4, Math.round(footerH * 0.12))
+    this.gridStartY = Math.max(gridBottom - gridH, 0)
 
-    // Header Y positions — fixed gaps, never touch each other
-    const titleY    = Math.round(headerH * 0.28)
-    const subtitleY = titleY  + Math.round(this.ballSize * 0.65)
-    const badgeY    = subtitleY + Math.round(this.ballSize * 0.55)
+    // If grid doesn't fit, shrink balls slightly so they all fit
+    if (this.gridStartY === 0) {
+      const availH    = gridBottom
+      const newRowH   = Math.floor(availH / 10)
+      this.ballSize   = Math.min(this.ballSize, newRowH - this.ballGap)
+      this.gridStartY = 0
+    }
 
-    // Grid origin
+    // Header zone — space above grid
+    const headerH   = this.gridStartY
+    const titleY    = Math.max(16, Math.round(headerH * 0.28))
+    const subtitleY = titleY  + Math.round(Math.max(14, this.ballSize * 0.55))
+    const badgeY    = subtitleY + Math.round(Math.max(14, this.ballSize * 0.48))
+
     const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
     this.gridStartX   = (W - totalGridW) / 2 + this.ballSize / 2
-    this.gridStartY   = headerH
-
-    // Footer Y positions
-    const gridBottom  = this.gridStartY + gridH
-    const countY      = gridBottom + footerPad + Math.round(footerH * 0.18)
-    this.btnY         = gridBottom + footerPad + Math.round(footerH * 0.58)
 
     // ── Title ──────────────────────────────────────────────────────────
     const titleSize = Math.round(Math.min(W * 0.072, 28))
@@ -253,7 +271,7 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setVisible(false)
     this.gridContainer.add(this.confirmBtnText)
 
-    this.confirmBtnHit = this.add.rectangle(cx, this.btnY, W - 48, 40)
+    this.confirmBtnHit = this.add.rectangle(cx, this.btnY, W - 48, BTN_H)
       .setInteractive({ useHandCursor: true }).setVisible(false)
     this.gridContainer.add(this.confirmBtnHit)
 
@@ -266,7 +284,7 @@ export class GameScene extends Phaser.Scene {
       )
     })
 
-    // ── Drum container — centred, hidden until drum phase ──────────────
+    // ── Drum container ─────────────────────────────────────────────────
     this.drumContainer = this.add.container(cx, H * 0.42).setVisible(false).setDepth(5)
     this.drumGlow  = this.add.graphics()
     this.drumBody  = this.add.graphics()
@@ -276,7 +294,6 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5)
     this.drumContainer.add([this.drumGlow, this.drumBody, this.drumLabel])
 
-    // ── Reveal + overlay ───────────────────────────────────────────────
     this.revealContainer = this.add.container(0, 0).setVisible(false).setDepth(6)
 
     this.overlay = this.add.graphics().setVisible(false).setDepth(10)
@@ -289,12 +306,8 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setVisible(false).setDepth(11)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // DRUM PHASE
-  // ─────────────────────────────────────────────────────────────────────────
   private startDrumPhase() {
     this.isPlacing = true
-    // Hide entire selection screen before showing drum
     this.gridContainer.setVisible(false)
     this.drumContainer.setVisible(true)
 
@@ -321,24 +334,9 @@ export class GameScene extends Phaser.Scene {
     this.drumBody.fillStyle(0x5a3a00, 1);   this.drumBody.fillCircle(0, 25, 7)
     this.drumBody.fillStyle(0xFFFFFF, 0.07); this.drumBody.fillEllipse(-22, -6, 55, 20)
 
-    // Glow pulse
-    this.tweens.add({
-      targets: this.drumGlow,
-      alpha: { from: 0.6, to: 1 },
-      duration: 350, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
-    })
-    // Clean body rock — reads as "rolling drum"
-    this.tweens.add({
-      targets: this.drumBody,
-      angle: { from: -8, to: 8 },
-      duration: 280, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
-    })
-    // Label pulse
-    this.tweens.add({
-      targets: this.drumLabel,
-      alpha: { from: 0.5, to: 1 },
-      duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
-    })
+    this.tweens.add({ targets: this.drumGlow, alpha: { from: 0.6, to: 1 }, duration: 350, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    this.tweens.add({ targets: this.drumBody, angle: { from: -8, to: 8 }, duration: 280, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    this.tweens.add({ targets: this.drumLabel, alpha: { from: 0.5, to: 1 }, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
 
     if (this.drumSound) { try { this.drumSound.stop() } catch (_) {} }
     this.drumSound = this.sound.add('drum')
@@ -354,9 +352,6 @@ export class GameScene extends Phaser.Scene {
     this.drumContainer.setVisible(false)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RESULT → REVEAL
-  // ─────────────────────────────────────────────────────────────────────────
   private handleResult(result: BetResult) {
     const drawn = (result.result as { drawn: number[] }).drawn
     this.currentBalance = result.newBalance
@@ -369,13 +364,9 @@ export class GameScene extends Phaser.Scene {
     const H  = this.scale.height
     const cx = W / 2
 
-    // gridContainer already hidden from startDrumPhase — stays hidden here
-    this.revealContainer.removeAll(true)  // clear previous round's children
+    this.revealContainer.removeAll(true)
     this.revealContainer.setVisible(true)
 
-    // BUG FIX: add reveal-phase header texts TO revealContainer (not the
-    // scene root), so removeAll(true) in resetToSelection() cleans them up
-    // and they never overlap the selection screen on subsequent rounds
     this.revealContainer.add(
       this.add.text(cx, 36, 'DRAWING RESULTS', {
         fontSize: '18px', fontStyle: 'bold',
@@ -481,9 +472,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // OVERLAY
-  // ─────────────────────────────────────────────────────────────────────────
   private showResultOverlay(result: BetResult) {
     const W  = this.scale.width
     const H  = this.scale.height
@@ -536,11 +524,8 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // RESET
-  // ─────────────────────────────────────────────────────────────────────────
   private resetToSelection() {
-    this.revealContainer.removeAll(true)  // cleans up ALL reveal children including header texts
+    this.revealContainer.removeAll(true)
     this.revealContainer.setVisible(false)
     this.revealSlots = []
     this.revealTexts = []
@@ -573,9 +558,6 @@ export class GameScene extends Phaser.Scene {
     window.parent.postMessage({ type: 'BET_DONE', payload: { newBalance: this.currentBalance } }, this.PARENT_ORIGIN)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // ERROR
-  // ─────────────────────────────────────────────────────────────────────────
   private handleError(message: string) {
     this.stopDrum()
     const err = this.add.text(this.scale.width / 2, 60, message, {
@@ -588,9 +570,6 @@ export class GameScene extends Phaser.Scene {
     window.parent.postMessage({ type: 'BET_DONE', payload: {} }, this.PARENT_ORIGIN)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // TOGGLE BALL
-  // ─────────────────────────────────────────────────────────────────────────
   private toggleBall(num: number) {
     const ballGfx = this.ballCircles.get(num)!
     const txt     = this.ballTexts.get(num)!
@@ -623,9 +602,6 @@ export class GameScene extends Phaser.Scene {
     this.updateSelectionUI()
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // SELECTION UI
-  // ─────────────────────────────────────────────────────────────────────────
   private updateSelectionUI() {
     const count  = this.selectedBalls.length
     const sorted = [...this.selectedBalls].sort((a, b) => a - b)
@@ -665,9 +641,6 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // DRAW HELPERS
-  // ─────────────────────────────────────────────────────────────────────────
   private drawPayoutBadgeBg(badgeY: number) {
     const pw = (this.payoutBadge.width || 140) + 24
     const ph = 22
@@ -720,9 +693,6 @@ export class GameScene extends Phaser.Scene {
     this.confirmBtn.strokeRoundedRect(this.cx - bw / 2, this.btnY - bh / 2, bw, bh, 10)
   }
 
-  // ─────────────────────────────────────────────────────────────────────────
-  // UPDATE
-  // ─────────────────────────────────────────────────────────────────────────
   update(_time: number, delta: number) {
     this.auroraTime += delta * 0.0003
     const W = this.scale.width
