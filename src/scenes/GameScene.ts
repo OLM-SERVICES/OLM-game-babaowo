@@ -32,6 +32,7 @@ export class GameScene extends Phaser.Scene {
   private btnY: number = 0
   private cx:   number = 0
   private W:    number = 0
+  private badgeY: number = 0
 
   private ballSize:   number = 28
   private ballGap:    number = 3
@@ -60,6 +61,11 @@ export class GameScene extends Phaser.Scene {
   private auroraTime:  number = 0
 
   private gridContainer!: Phaser.GameObjects.Container
+
+  // Layout lifecycle: tracks whether setupUI() has run at least once, so
+  // we know whether there's an existing UI to tear down before rebuilding.
+  private uiInitialized: boolean = false
+  private resizeTimer: Phaser.Time.TimerEvent | null = null
 
   constructor() { super('GameScene') }
 
@@ -115,10 +121,69 @@ export class GameScene extends Phaser.Scene {
       }
     })
 
+    // ── Resize-aware layout ─────────────────────────────────────────────
+    // Mobile browsers frequently haven't settled their final CSS viewport
+    // size (address bar collapse, iframe/webview layout timing) at the
+    // instant `create()` fires. setupUI() bakes every position in as fixed
+    // pixels computed from the canvas size *at call time*, so if that size
+    // is wrong, nothing ever corrects itself — which is why the header,
+    // grid, and confirm button can end up overlapping or pushed off-screen
+    // on mobile while looking fine on desktop web.
+    //
+    // Fix: listen for Phaser's scale resize event and rebuild the layout
+    // whenever the canvas size actually changes, and also run one safety
+    // rebuild shortly after the initial layout to catch cases where the
+    // viewport settles a beat after create() runs.
+    this.scale.on('resize', this.handleResize, this)
+
     this.setupUI()
+
+    this.time.delayedCall(150, () => {
+      if (!this.isPlacing) this.setupUI()
+    })
+  }
+
+  private handleResize() {
+    if (this.resizeTimer) {
+      this.resizeTimer.remove()
+      this.resizeTimer = null
+    }
+    // Debounce: rapid resize events (rotation, browser chrome animating)
+    // shouldn't trigger a rebuild per-frame.
+    this.resizeTimer = this.time.delayedCall(120, () => {
+      // Don't tear down the drum/reveal UI mid-animation — the next resize
+      // after the round finishes will pick up the correct layout instead.
+      if (this.isPlacing) return
+      this.setupUI()
+    })
+  }
+
+  // Tears down everything built by setupUI() so it can be safely re-run.
+  // Only the objects created directly in the scene (not inside
+  // gridContainer) need explicit destruction — gridContainer.destroy(true)
+  // recursively destroys all of its children (grid, badge, footer, etc).
+  private destroyUI() {
+    if (!this.uiInitialized) return
+    this.bgGradient?.destroy()
+    this.aurora1?.destroy()
+    this.aurora2?.destroy()
+    this.gridContainer?.destroy(true)
+    this.drumContainer?.destroy(true)
+    this.revealContainer?.destroy(true)
+    this.overlay?.destroy()
+    this.overlayText?.destroy()
+    this.overlaySubText?.destroy()
+    this.ballCircles.clear()
+    this.ballTexts.clear()
+    this.ballGlows.clear()
+    // Force a fresh "not shown yet" state so updateSelectionUI() redraws
+    // the confirm button instead of assuming it's already visible.
+    this.confirmVisible = false
   }
 
   private setupUI() {
+    this.destroyUI()
+
     // Use the CSS pixel size of the canvas, not Phaser's potentially
     // DPR-scaled internal size. This is what actually matters for layout —
     // Phaser's scale.width/height can be 1.5–2× the real CSS size when
@@ -156,6 +221,7 @@ export class GameScene extends Phaser.Scene {
     const SUBTITLE_Y = 58
     const BADGE_Y    = 80
     const HEADER_END = 96   // first pixel the grid may use
+    this.badgeY = BADGE_Y
 
     const BTN_H        = 44
     const BTN_MARGIN_B = 6   // gap from canvas bottom
@@ -171,6 +237,12 @@ export class GameScene extends Phaser.Scene {
     const rowH       = Math.floor(availGridH / 10)
     this.ballGap     = Math.max(2, Math.floor(rowH * 0.10))
     this.ballSize    = Math.min(36, rowH - this.ballGap)
+
+    // Also cap ball size against the available width so a narrow mobile
+    // viewport can't force 9 columns wider than the screen — width and
+    // height both constrain the ball size, whichever is tighter wins.
+    const maxBallSizeForWidth = Math.floor((W - 24) / this.cols) - this.ballGap
+    this.ballSize    = Math.max(10, Math.min(this.ballSize, maxBallSizeForWidth))
     this.gridStartY  = HEADER_END
 
     const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
@@ -299,6 +371,39 @@ export class GameScene extends Phaser.Scene {
     this.overlaySubText = this.add.text(cx, H / 2 + 24, '', {
       fontSize: '18px', fontFamily: 'Arial, sans-serif', color: '#ffffff',
     }).setOrigin(0.5).setVisible(false).setDepth(11)
+
+    this.uiInitialized = true
+
+    // If this is a rebuild (resize/orientation change) while balls were
+    // already selected, redraw those selections and restore the badge /
+    // confirm button instead of silently losing them.
+    this.reapplySelectionVisuals()
+  }
+
+  // Redraws the "selected" look for any numbers already in selectedBalls
+  // and refreshes badge/confirm-button state — used after a layout
+  // rebuild so an in-progress selection survives a resize.
+  private reapplySelectionVisuals() {
+    this.selectedBalls.forEach(num => {
+      const ballGfx = this.ballCircles.get(num)
+      const txt     = this.ballTexts.get(num)
+      const glow    = this.ballGlows.get(num)
+      if (!ballGfx || !txt || !glow) return
+
+      const r   = this.ballSize / 2
+      const col = (num - 1) % this.cols
+      const row = Math.floor((num - 1) / this.cols)
+      const bx  = this.gridStartX + col * (this.ballSize + this.ballGap)
+      const by  = this.gridStartY + row * (this.ballSize + this.ballGap)
+
+      this.drawLotteryBall(ballGfx, bx, by, r, true)
+      txt.setColor('#3a2a00')
+      glow.clear().setVisible(true)
+      glow.fillStyle(0xFFD700, 0.22)
+      glow.fillCircle(bx, by, r * 1.75)
+      this.tweens.add({ targets: glow, alpha: { from: 0.4, to: 0.12 }, duration: 800, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    })
+    this.updateSelectionUI()
   }
 
   // ─────────────────────────────────────────────────────────────────────────
@@ -558,6 +663,7 @@ export class GameScene extends Phaser.Scene {
     this.confirmBtnHit.setVisible(false)
     this.selectedCountText.setText('Select 2–5 lucky numbers')
     this.payoutBadge.setText('217× · pick 2 numbers')
+    this.drawPayoutBadgeBg(this.badgeY)
     this.gridContainer.setVisible(true)
 
     window.parent.postMessage({ type: 'BET_DONE', payload: { newBalance: this.currentBalance } }, this.PARENT_ORIGIN)
@@ -635,6 +741,10 @@ export class GameScene extends Phaser.Scene {
     } else {
       this.payoutBadge.setText('217× · pick 2 numbers')
     }
+    // Badge text length changes with the pick count ("217× · pick 2
+    // numbers" vs "2500× payout · 5 picks") — redraw the pill background
+    // every time so it never overlaps or clips the text.
+    this.drawPayoutBadgeBg(this.badgeY)
 
     const shouldShow = count >= MIN_PICKS
     if (shouldShow && !this.confirmVisible) {
@@ -717,6 +827,7 @@ export class GameScene extends Phaser.Scene {
     this.auroraTime += delta * 0.0003
     const W = this.scale.width
     const H = this.scale.height
+    if (!this.aurora1 || !this.aurora2) return
     this.aurora1.clear()
     this.aurora1.fillStyle(0xFFD700, 0.022)
     this.aurora1.fillEllipse(W * 0.2 + Math.sin(this.auroraTime) * 50, H * 0.3 + Math.cos(this.auroraTime * 0.6) * 30, W * 0.8, H * 0.5)
