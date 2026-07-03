@@ -119,9 +119,15 @@ export class GameScene extends Phaser.Scene {
   }
 
   private setupUI() {
-    const W  = this.scale.width
-    const H  = this.scale.height
-    const cx = W / 2
+    // Use the CSS pixel size of the canvas, not Phaser's potentially
+    // DPR-scaled internal size. This is what actually matters for layout —
+    // Phaser's scale.width/height can be 1.5–2× the real CSS size when
+    // setZoom(devicePixelRatio) is active in main.ts, causing content to
+    // be positioned far below the visible area on retina/HiDPI displays.
+    const canvas  = this.sys.game.canvas
+    const W       = canvas.clientWidth  || this.scale.width
+    const H       = canvas.clientHeight || this.scale.height
+    const cx      = W / 2
     this.W  = W
     this.cx = cx
 
@@ -131,53 +137,41 @@ export class GameScene extends Phaser.Scene {
     this.aurora2 = this.add.graphics()
     this.gridContainer = this.add.container(0, 0)
 
-    // ── Ball sizing ────────────────────────────────────────────────────
-    const gridW   = W * 0.88
-    this.cols     = 9
-    this.ballGap  = Math.max(2, Math.floor(gridW / (this.cols * 5.5)))
-    this.ballSize = Math.min(36, Math.floor((gridW - (this.cols - 1) * this.ballGap) / this.cols))
-
-    // ── FIXED layout — work bottom-up so confirm button is always on screen ──
+    // ── LAYOUT: strict top-down + bottom-up, grid fills the middle ─────
     //
-    // Reserve space from the bottom:
-    //   36px  confirm button margin from bottom
-    //   40px  confirm button height
-    //   28px  count label above button
-    //   8px   gap
-    // = 112px minimum footer clearance from bottom
+    // HEADER (top, fixed pixel heights — prevents all text overlaps):
+    //   Title:    centre at y=20,  height ~34px (28px bold font × 1.2)
+    //   Subtitle: centre at y=58,  height ~18px (12px font × 1.2) — 4px below title bottom
+    //   Badge:    centre at y=80,  height  22px                    — 4px below subtitle bottom
+    //   Header ends at y=96 (badge bottom + 14px clearance)
     //
-    // Then fit header (title + subtitle + badge) at the top.
-    // The grid fills whatever remains in between.
+    // FOOTER (bottom, fixed pixel heights — confirm button always visible):
+    //   Button:   40px tall, 6px above bottom edge
+    //   Count:    18px tall, 8px above button
+    //
+    // GRID (fills remaining space):
+    //   Ball size derived from available height ÷ 10 rows
 
-    const BTN_H        = 40
-    const BTN_MARGIN_B = 8    // tighter bottom margin
-    const BTN_MARGIN_T = 6    // tighter gap above button
-    const COUNT_H      = 18
-    const COUNT_GAP    = 6
+    const TITLE_Y    = 20
+    const SUBTITLE_Y = 58
+    const BADGE_Y    = 80
+    const HEADER_END = 96   // first pixel the grid may use
 
-     this.btnY = H - BTN_MARGIN_B - BTN_H / 2
+    const BTN_H        = 44
+    const BTN_MARGIN_B = 6   // gap from canvas bottom
+    this.btnY          = H - BTN_MARGIN_B - BTN_H / 2
 
-    const countY    = this.btnY - BTN_H / 2 - BTN_MARGIN_T - COUNT_H / 2
-    const gridBottom = countY - COUNT_GAP
+    const COUNT_H  = 18
+    const countY   = this.btnY - BTN_H / 2 - 8 - COUNT_H / 2
+    const gridBottom = countY - 8
 
-    // Header — fit in whatever space is above the grid
-    const rowH      = this.ballSize + this.ballGap
-    const gridH     = 10 * rowH
-    this.gridStartY = Math.max(gridBottom - gridH, 0)
-
-    // If grid doesn't fit, shrink balls slightly so they all fit
-    if (this.gridStartY === 0) {
-      const availH    = gridBottom
-      const newRowH   = Math.floor(availH / 10)
-      this.ballSize   = Math.min(this.ballSize, newRowH - this.ballGap)
-      this.gridStartY = 0
-    }
-
-    // Header zone — space above grid
-    const headerH   = this.gridStartY
-    const titleY    = Math.max(12, Math.round(headerH * 0.20))
-    const subtitleY = titleY  + Math.round(Math.max(12, this.ballSize * 0.45))
-    const badgeY    = subtitleY + Math.round(Math.max(12, this.ballSize * 0.38))
+    // Grid
+    this.cols        = 9
+    const availGridH = Math.max(10, gridBottom - HEADER_END)
+    const rowH       = Math.floor(availGridH / 10)
+    this.ballGap     = Math.max(2, Math.floor(rowH * 0.10))
+    this.ballSize    = Math.min(36, rowH - this.ballGap)
+    this.gridStartY  = HEADER_END
 
     const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
     this.gridStartX   = (W - totalGridW) / 2 + this.ballSize / 2
@@ -186,33 +180,34 @@ export class GameScene extends Phaser.Scene {
     const titleSize = Math.round(Math.min(W * 0.072, 28))
 
     this.gridContainer.add(
-      this.add.text(cx, titleY, 'BABA OWO', {
+      this.add.text(cx, TITLE_Y, 'BABA OWO', {
         fontSize: `${titleSize}px`, fontStyle: 'bold',
         fontFamily: 'Georgia, serif', color: '#16A03A',
       }).setOrigin(0.5).setAlpha(0.4).setScale(1.05)
     )
     this.gridContainer.add(
-      this.add.text(cx, titleY, 'BABA OWO', {
+      this.add.text(cx, TITLE_Y, 'BABA OWO', {
         fontSize: `${titleSize}px`, fontStyle: 'bold',
         fontFamily: 'Georgia, serif', color: '#FFD700',
         stroke: '#16A03A', strokeThickness: 2,
       }).setOrigin(0.5)
     )
 
+    // Subtitle — fixed Y, never overlaps title
     const subSize = Math.round(Math.min(W * 0.028, 12))
     this.gridContainer.add(
-      this.add.text(cx, subtitleY, '🔥 Pick your numbers. Dare the draw.', {
+      this.add.text(cx, SUBTITLE_Y, '🔥 Pick your numbers. Dare the draw.', {
         fontSize: `${subSize}px`, fontFamily: 'Arial, sans-serif', color: '#cfead0',
       }).setOrigin(0.5)
     )
 
-    // ── Payout badge ───────────────────────────────────────────────────
+    // Badge — fixed Y, never overlaps subtitle
     this.payoutBadgeBg = this.add.graphics()
-    this.payoutBadge   = this.add.text(cx, badgeY, '217× · pick 2 numbers', {
+    this.payoutBadge   = this.add.text(cx, BADGE_Y, '217× · pick 2 numbers', {
       fontSize: `${Math.round(subSize * 1.05)}px`, fontStyle: 'bold',
       fontFamily: 'Arial, sans-serif', color: '#FFD700',
     }).setOrigin(0.5)
-    this.drawPayoutBadgeBg(badgeY)
+    this.drawPayoutBadgeBg(BADGE_Y)
     this.gridContainer.add(this.payoutBadgeBg)
     this.gridContainer.add(this.payoutBadge)
 
@@ -220,7 +215,7 @@ export class GameScene extends Phaser.Scene {
     this.ballCircles.clear()
     this.ballTexts.clear()
     this.ballGlows.clear()
-    const fontSize = Math.max(8, Math.round(this.ballSize * 0.34))
+    const fontSize = Math.max(7, Math.round(this.ballSize * 0.34))
 
     for (let i = 0; i < BALL_COUNT; i++) {
       const num = i + 1
@@ -253,13 +248,14 @@ export class GameScene extends Phaser.Scene {
       this.ballTexts.set(num, txt)
     }
 
-    // ── Footer ─────────────────────────────────────────────────────────
+    // ── Footer: count label ────────────────────────────────────────────
     this.selectedCountText = this.add.text(cx, countY, 'Select 2–5 lucky numbers', {
       fontSize: `${Math.round(subSize * 1.1)}px`,
       fontFamily: 'Arial, sans-serif', color: '#cfead0',
     }).setOrigin(0.5)
     this.gridContainer.add(this.selectedCountText)
 
+    // ── Footer: confirm button — always within canvas bounds ───────────
     this.confirmBtn = this.add.graphics()
     this.drawConfirmBtn(false)
     this.gridContainer.add(this.confirmBtn)
@@ -284,7 +280,7 @@ export class GameScene extends Phaser.Scene {
     })
 
     // ── Drum container ─────────────────────────────────────────────────
-    this.drumContainer = this.add.container(cx, H * 0.42).setVisible(false).setDepth(5)
+    this.drumContainer = this.add.container(cx, H * 0.44).setVisible(false).setDepth(5)
     this.drumGlow  = this.add.graphics()
     this.drumBody  = this.add.graphics()
     this.drumLabel = this.add.text(0, 110, 'Drawing numbers...', {
@@ -305,21 +301,22 @@ export class GameScene extends Phaser.Scene {
     }).setOrigin(0.5).setVisible(false).setDepth(11)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // DRUM PHASE
+  // ─────────────────────────────────────────────────────────────────────────
   private startDrumPhase() {
     this.isPlacing = true
     this.gridContainer.setVisible(false)
     this.drumContainer.setVisible(true)
 
     this.drumGlow.clear()
-    this.drumGlow.fillStyle(0xFFD700, 0.18)
-    this.drumGlow.fillCircle(0, 25, 90)
-    this.drumGlow.fillStyle(0xFFD700, 0.06)
-    this.drumGlow.fillCircle(0, 25, 130)
+    this.drumGlow.fillStyle(0xFFD700, 0.18); this.drumGlow.fillCircle(0, 25, 90)
+    this.drumGlow.fillStyle(0xFFD700, 0.06); this.drumGlow.fillCircle(0, 25, 130)
 
     this.drumBody.clear()
-    this.drumBody.fillStyle(0x5a3a00, 1);  this.drumBody.fillEllipse(0, 0, 150, 60)
-    this.drumBody.fillStyle(0x7a5200, 1);  this.drumBody.fillRect(-75, 0, 150, 50)
-    this.drumBody.fillStyle(0x4a2e00, 1);  this.drumBody.fillEllipse(0, 50, 150, 60)
+    this.drumBody.fillStyle(0x5a3a00, 1);    this.drumBody.fillEllipse(0, 0, 150, 60)
+    this.drumBody.fillStyle(0x7a5200, 1);    this.drumBody.fillRect(-75, 0, 150, 50)
+    this.drumBody.fillStyle(0x4a2e00, 1);    this.drumBody.fillEllipse(0, 50, 150, 60)
     this.drumBody.fillStyle(0xFFD700, 0.18); this.drumBody.fillEllipse(0, 0, 150, 60)
     this.drumBody.lineStyle(2, 0xB8912A, 0.8)
     for (const s of [-60, -30, 0, 30, 60]) { this.drumBody.lineBetween(s, -30, s, 80) }
@@ -329,12 +326,12 @@ export class GameScene extends Phaser.Scene {
     this.drumBody.lineStyle(1, 0xB8912A, 0.4)
     this.drumBody.lineBetween(-75, 0, -75, 50)
     this.drumBody.lineBetween(75, 0, 75, 50)
-    this.drumBody.fillStyle(0xFFD700, 1);   this.drumBody.fillCircle(0, 25, 10)
-    this.drumBody.fillStyle(0x5a3a00, 1);   this.drumBody.fillCircle(0, 25, 7)
+    this.drumBody.fillStyle(0xFFD700, 1);    this.drumBody.fillCircle(0, 25, 10)
+    this.drumBody.fillStyle(0x5a3a00, 1);    this.drumBody.fillCircle(0, 25, 7)
     this.drumBody.fillStyle(0xFFFFFF, 0.07); this.drumBody.fillEllipse(-22, -6, 55, 20)
 
-    this.tweens.add({ targets: this.drumGlow, alpha: { from: 0.6, to: 1 }, duration: 350, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
-    this.tweens.add({ targets: this.drumBody, angle: { from: -8, to: 8 }, duration: 280, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    this.tweens.add({ targets: this.drumGlow,  alpha: { from: 0.6, to: 1 }, duration: 350, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
+    this.tweens.add({ targets: this.drumBody,  angle: { from: -8, to: 8 },  duration: 280, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
     this.tweens.add({ targets: this.drumLabel, alpha: { from: 0.5, to: 1 }, duration: 600, yoyo: true, repeat: -1, ease: 'Sine.easeInOut' })
 
     if (this.drumSound) { try { this.drumSound.stop() } catch (_) {} }
@@ -351,6 +348,9 @@ export class GameScene extends Phaser.Scene {
     this.drumContainer.setVisible(false)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // RESULT → REVEAL
+  // ─────────────────────────────────────────────────────────────────────────
   private handleResult(result: BetResult) {
     const drawn = (result.result as { drawn: number[] }).drawn
     this.currentBalance = result.newBalance
@@ -359,9 +359,10 @@ export class GameScene extends Phaser.Scene {
   }
 
   private startRevealPhase(drawn: number[], result: BetResult) {
-    const W  = this.scale.width
-    const H  = this.scale.height
-    const cx = W / 2
+    const canvas = this.sys.game.canvas
+    const W      = canvas.clientWidth  || this.scale.width
+    const H      = canvas.clientHeight || this.scale.height
+    const cx     = W / 2
 
     this.revealContainer.removeAll(true)
     this.revealContainer.setVisible(true)
@@ -456,14 +457,12 @@ export class GameScene extends Phaser.Scene {
     if (isMatch) {
       this.tweens.add({ targets: [ballGfx, numTxt], scale: 1.32, duration: 150, yoyo: true, delay: 420, ease: 'Power2' })
       const glow = this.add.graphics().setDepth(7)
-      glow.lineStyle(3, 0xFFD700, 0.9)
-      glow.strokeCircle(x, y, r)
+      glow.lineStyle(3, 0xFFD700, 0.9); glow.strokeCircle(x, y, r)
       this.revealContainer.add(glow)
       this.tweens.add({ targets: glow, scaleX: 1.8, scaleY: 1.8, alpha: 0, duration: 550, delay: 420, ease: 'Power2', onComplete: () => glow.destroy() })
       for (let s = 0; s < 8; s++) {
         const spark = this.add.graphics().setDepth(7)
-        spark.fillStyle(0xFFD700, 1)
-        spark.fillCircle(0, 0, 2)
+        spark.fillStyle(0xFFD700, 1); spark.fillCircle(0, 0, 2)
         spark.setPosition(x, y)
         const angle = (s / 8) * Math.PI * 2
         this.tweens.add({ targets: spark, x: x + Math.cos(angle) * 38, y: y + Math.sin(angle) * 38, alpha: 0, duration: 460, delay: 430, ease: 'Power2', onComplete: () => spark.destroy() })
@@ -471,10 +470,14 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // OVERLAY
+  // ─────────────────────────────────────────────────────────────────────────
   private showResultOverlay(result: BetResult) {
-    const W  = this.scale.width
-    const H  = this.scale.height
-    const cx = W / 2
+    const canvas = this.sys.game.canvas
+    const W      = canvas.clientWidth  || this.scale.width
+    const H      = canvas.clientHeight || this.scale.height
+    const cx     = W / 2
 
     this.overlay.clear()
     this.overlay.fillStyle(result.win ? 0x041a04 : 0x1a0000, 0.93)
@@ -523,6 +526,9 @@ export class GameScene extends Phaser.Scene {
     })
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // RESET
+  // ─────────────────────────────────────────────────────────────────────────
   private resetToSelection() {
     this.revealContainer.removeAll(true)
     this.revealContainer.setVisible(false)
@@ -557,6 +563,9 @@ export class GameScene extends Phaser.Scene {
     window.parent.postMessage({ type: 'BET_DONE', payload: { newBalance: this.currentBalance } }, this.PARENT_ORIGIN)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // ERROR
+  // ─────────────────────────────────────────────────────────────────────────
   private handleError(message: string) {
     this.stopDrum()
     const err = this.add.text(this.scale.width / 2, 60, message, {
@@ -569,6 +578,9 @@ export class GameScene extends Phaser.Scene {
     window.parent.postMessage({ type: 'BET_DONE', payload: {} }, this.PARENT_ORIGIN)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // TOGGLE BALL
+  // ─────────────────────────────────────────────────────────────────────────
   private toggleBall(num: number) {
     const ballGfx = this.ballCircles.get(num)!
     const txt     = this.ballTexts.get(num)!
@@ -601,6 +613,9 @@ export class GameScene extends Phaser.Scene {
     this.updateSelectionUI()
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // SELECTION UI
+  // ─────────────────────────────────────────────────────────────────────────
   private updateSelectionUI() {
     const count  = this.selectedBalls.length
     const sorted = [...this.selectedBalls].sort((a, b) => a - b)
@@ -640,6 +655,9 @@ export class GameScene extends Phaser.Scene {
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // DRAW HELPERS
+  // ─────────────────────────────────────────────────────────────────────────
   private drawPayoutBadgeBg(badgeY: number) {
     const pw = (this.payoutBadge.width || 140) + 24
     const ph = 22
@@ -685,13 +703,16 @@ export class GameScene extends Phaser.Scene {
     this.confirmBtn.clear()
     if (!visible) return
     const bw = this.W - 48
-    const bh = 40
+    const bh = 44
     this.confirmBtn.fillStyle(0x16A03A, 1)
     this.confirmBtn.fillRoundedRect(this.cx - bw / 2, this.btnY - bh / 2, bw, bh, 10)
     this.confirmBtn.lineStyle(2, 0xFFD700, 1)
     this.confirmBtn.strokeRoundedRect(this.cx - bw / 2, this.btnY - bh / 2, bw, bh, 10)
   }
 
+  // ─────────────────────────────────────────────────────────────────────────
+  // UPDATE
+  // ─────────────────────────────────────────────────────────────────────────
   update(_time: number, delta: number) {
     this.auroraTime += delta * 0.0003
     const W = this.scale.width
