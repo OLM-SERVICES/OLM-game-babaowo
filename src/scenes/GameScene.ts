@@ -138,7 +138,10 @@ export class GameScene extends Phaser.Scene {
 
     this.setupUI()
 
-    this.time.delayedCall(150, () => {
+    this.time.delayedCall(300, () => {
+      if (!this.isPlacing) this.setupUI()
+    })
+    this.time.delayedCall(600, () => {
       if (!this.isPlacing) this.setupUI()
     })
   }
@@ -202,48 +205,58 @@ export class GameScene extends Phaser.Scene {
     this.aurora2 = this.add.graphics()
     this.gridContainer = this.add.container(0, 0)
 
-    // ── LAYOUT: strict top-down + bottom-up, grid fills the middle ─────
+    // ── LAYOUT: proportional to canvas height, grid fills the middle ───
     //
-    // HEADER (top, fixed pixel heights — prevents all text overlaps):
-    //   Title:    centre at y=20,  height ~34px (28px bold font × 1.2)
-    //   Subtitle: centre at y=58,  height ~18px (12px font × 1.2) — 4px below title bottom
-    //   Badge:    centre at y=80,  height  22px                    — 4px below subtitle bottom
-    //   Header ends at y=96 (badge bottom + 14px clearance)
-    //
-    // FOOTER (bottom, fixed pixel heights — confirm button always visible):
-    //   Button:   40px tall, 6px above bottom edge
-    //   Count:    18px tall, 8px above button
-    //
-    // GRID (fills remaining space):
-    //   Ball size derived from available height ÷ 10 rows
+    // Previously header/footer were fixed pixel constants (TITLE_Y=20,
+    // HEADER_END=96, BTN_H=44, etc). Those numbers were tuned for a
+    // ~900px-tall desktop canvas. On a ~650px mobile canvas they ate a
+    // much bigger share of the screen, which is why the payout badge
+    // overlapped the grid on desktop-ish widths and the confirm button
+    // rendered below the visible viewport on mobile. Everything below
+    // now scales with H (with min/max clamps) instead.
 
-    const TITLE_Y    = 20
-    const SUBTITLE_Y = 58
-    const BADGE_Y    = 80
-    const HEADER_END = 96   // first pixel the grid may use
+    const TITLE_Y    = Math.round(H * 0.028)
+    const SUBTITLE_Y = TITLE_Y + Math.round(H * 0.045)
+    const BADGE_Y    = SUBTITLE_Y + Math.round(H * 0.028)
+    const HEADER_END = BADGE_Y + Math.round(H * 0.022)   // first pixel the grid may use
     this.badgeY = BADGE_Y
 
-    const BTN_H        = 44
-    const BTN_MARGIN_B = 6   // gap from canvas bottom
+    const BTN_H        = Math.max(38, Math.min(48, Math.round(H * 0.06)))
+    const BTN_MARGIN_B = Math.max(6, Math.round(H * 0.01))   // gap from canvas bottom
     this.btnY          = H - BTN_MARGIN_B - BTN_H / 2
 
-    const COUNT_H  = 18
-    const countY   = this.btnY - BTN_H / 2 - 8 - COUNT_H / 2
-    const gridBottom = countY - 8
+    const COUNT_H     = Math.max(16, Math.round(H * 0.022))
+    const countY      = this.btnY - BTN_H / 2 - 8 - COUNT_H / 2
+    const gridBottom  = countY - 8
 
     // Grid
-    this.cols        = 9
-    const availGridH = Math.max(10, gridBottom - HEADER_END)
-    const rowH       = Math.floor(availGridH / 10)
-    this.ballGap     = Math.max(2, Math.floor(rowH * 0.10))
-    this.ballSize    = Math.min(36, rowH - this.ballGap)
+    this.cols      = 9
+    let availGridH  = Math.max(10, gridBottom - HEADER_END)
+    let gridTop     = HEADER_END
+
+    // Safety net: on very short viewports (landscape phone, split-screen)
+    // where 10 rows can't fit even at the minimum ball size, steal space
+    // from the header instead of letting the grid overlap the badge or
+    // clip into the footer.
+    const MIN_BALL = 14
+    const MIN_GAP  = 2
+    const minGridH = 10 * (MIN_BALL + MIN_GAP)
+    if (availGridH < minGridH) {
+      const deficit = minGridH - availGridH
+      gridTop    = Math.max(Math.round(H * 0.10), HEADER_END - deficit)
+      availGridH = Math.max(10, gridBottom - gridTop)
+    }
+
+    const rowH    = Math.floor(availGridH / 10)
+    this.ballGap  = Math.max(MIN_GAP, Math.floor(rowH * 0.10))
+    this.ballSize = Math.max(MIN_BALL, Math.min(36, rowH - this.ballGap))
 
     // Also cap ball size against the available width so a narrow mobile
     // viewport can't force 9 columns wider than the screen — width and
     // height both constrain the ball size, whichever is tighter wins.
     const maxBallSizeForWidth = Math.floor((W - 24) / this.cols) - this.ballGap
     this.ballSize    = Math.max(10, Math.min(this.ballSize, maxBallSizeForWidth))
-    this.gridStartY  = HEADER_END
+    this.gridStartY  = gridTop
 
     const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
     this.gridStartX   = (W - totalGridW) / 2 + this.ballSize / 2
