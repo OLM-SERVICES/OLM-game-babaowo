@@ -150,13 +150,12 @@ export class GameScene extends Phaser.Scene {
     // The grid fills whatever remains in between.
 
     const BTN_H        = 40
-    const BTN_MARGIN_B = 28   // gap from very bottom of canvas
-    const BTN_MARGIN_T = 10   // gap above button (between count label and btn)
-    const COUNT_H      = 20   // height of count text
-    const COUNT_GAP    = 8    // gap between grid bottom and count text
+    const BTN_MARGIN_B = 8    // tighter bottom margin
+    const BTN_MARGIN_T = 6    // tighter gap above button
+    const COUNT_H      = 18
+    const COUNT_GAP    = 6
 
-    // Pin confirm button Y from bottom — guaranteed on screen
-    this.btnY = H - BTN_MARGIN_B - BTN_H / 2
+     this.btnY = H - BTN_MARGIN_B - BTN_H / 2
 
     const countY    = this.btnY - BTN_H / 2 - BTN_MARGIN_T - COUNT_H / 2
     const gridBottom = countY - COUNT_GAP
@@ -176,9 +175,9 @@ export class GameScene extends Phaser.Scene {
 
     // Header zone — space above grid
     const headerH   = this.gridStartY
-    const titleY    = Math.max(16, Math.round(headerH * 0.28))
-    const subtitleY = titleY  + Math.round(Math.max(14, this.ballSize * 0.55))
-    const badgeY    = subtitleY + Math.round(Math.max(14, this.ballSize * 0.48))
+    const titleY    = Math.max(12, Math.round(headerH * 0.20))
+    const subtitleY = titleY  + Math.round(Math.max(12, this.ballSize * 0.45))
+    const badgeY    = subtitleY + Math.round(Math.max(12, this.ballSize * 0.38))
 
     const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
     this.gridStartX   = (W - totalGridW) / 2 + this.ballSize / 2
