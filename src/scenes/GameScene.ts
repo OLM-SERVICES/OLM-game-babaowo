@@ -218,7 +218,14 @@ export class GameScene extends Phaser.Scene {
     const TITLE_Y    = Math.round(H * 0.028)
     const SUBTITLE_Y = TITLE_Y + Math.round(H * 0.045)
     const BADGE_Y    = SUBTITLE_Y + Math.round(H * 0.028)
-    const HEADER_END = BADGE_Y + Math.round(H * 0.022)   // first pixel the grid may use
+    // The badge pill itself is a fixed 22px tall (see drawPayoutBadgeBg),
+    // so the clearance below it can't be purely proportional to H — on
+    // shorter canvases that shrank to ~15px, less than the badge's own
+    // half-height (11px) plus the top half of a ball, causing row 1 to
+    // render behind the badge. Reserve a fixed minimum on top of a
+    // proportional buffer so it always clears the badge + first ball row.
+    const BADGE_H = 22
+    const HEADER_END = BADGE_Y + BADGE_H / 2 + Math.max(28, Math.round(H * 0.045))
     this.badgeY = BADGE_Y
 
     const BTN_H        = Math.max(38, Math.min(48, Math.round(H * 0.06)))
