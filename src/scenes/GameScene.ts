@@ -218,56 +218,72 @@ export class GameScene extends Phaser.Scene {
     const TITLE_Y    = Math.round(H * 0.028)
     const SUBTITLE_Y = TITLE_Y + Math.round(H * 0.045)
     const BADGE_Y    = SUBTITLE_Y + Math.round(H * 0.028)
-    // The badge pill itself is a fixed 22px tall (see drawPayoutBadgeBg),
-    // so the clearance below it can't be purely proportional to H — on
-    // shorter canvases that shrank to ~15px, less than the badge's own
-    // half-height (11px) plus the top half of a ball, causing row 1 to
-    // render behind the badge. Reserve a fixed minimum on top of a
-    // proportional buffer so it always clears the badge + first ball row.
     const BADGE_H = 22
     const HEADER_END = BADGE_Y + BADGE_H / 2 + Math.max(28, Math.round(H * 0.045))
     this.badgeY = BADGE_Y
 
-    const BTN_H        = Math.max(38, Math.min(48, Math.round(H * 0.06)))
-    const BTN_MARGIN_B = Math.max(6, Math.round(H * 0.01))   // gap from canvas bottom
-    this.btnY          = H - BTN_MARGIN_B - BTN_H / 2
-
-    const COUNT_H     = Math.max(16, Math.round(H * 0.022))
-    const countY      = this.btnY - BTN_H / 2 - 8 - COUNT_H / 2
-    const gridBottom  = countY - 8
-
-    // Grid
-    this.cols      = 9
-    let availGridH  = Math.max(10, gridBottom - HEADER_END)
-    let gridTop     = HEADER_END
-
-    // Safety net: on very short viewports (landscape phone, split-screen)
-    // where 10 rows can't fit even at the minimum ball size, steal space
-    // from the header instead of letting the grid overlap the badge or
-    // clip into the footer.
+    // ── Grid size: driven by WIDTH first ────────────────────────────────
+    // On narrow phones, 9 columns force small balls well before height
+    // becomes the limiting factor. The old code sized the grid off
+    // available *height* (as if it would fill down to a bottom-anchored
+    // footer), then separately capped ball size by width — so on a
+    // width-constrained phone the grid rendered small, but the footer
+    // stayed pinned far below it, leaving a dead gap and pushing the
+    // confirm button toward (or past) the bottom of the screen.
+    //
+    // Fix: figure out the actual ball size from width, then figure out
+    // where the grid actually ends, then place the footer directly below
+    // that — instead of the other way around.
+    this.cols = 9
     const MIN_BALL = 14
     const MIN_GAP  = 2
-    const minGridH = 10 * (MIN_BALL + MIN_GAP)
-    if (availGridH < minGridH) {
-      const deficit = minGridH - availGridH
-      gridTop    = Math.max(Math.round(H * 0.10), HEADER_END - deficit)
-      availGridH = Math.max(10, gridBottom - gridTop)
+
+    const widthBallSize = Math.floor((W - 24) / this.cols) - MIN_GAP
+    let ballSize = Math.max(MIN_BALL, Math.min(36, widthBallSize))
+    let gap      = Math.max(MIN_GAP, Math.round(ballSize / 9))
+
+    // Fixed vertical overhead below the grid: small breathing gap, the
+    // "N selected" label, a gap, the confirm button, and bottom margin.
+    const BTN_H        = Math.max(38, Math.min(48, Math.round(H * 0.06)))
+    const BTN_MARGIN_B = Math.max(6, Math.round(H * 0.01))
+    const COUNT_H      = Math.max(16, Math.round(H * 0.022))
+    const GRID_TO_COUNT_GAP = Math.max(10, Math.round(H * 0.012))
+    const COUNT_TO_BTN_GAP  = 8
+
+    const footerOverhead = GRID_TO_COUNT_GAP + COUNT_H + COUNT_TO_BTN_GAP + BTN_H + BTN_MARGIN_B
+
+    // If the width-driven ball size would make the grid taller than the
+    // remaining space, shrink it further (rare — only on very short/wide
+    // canvases) so the footer never gets pushed off screen.
+    const availForGrid = H - HEADER_END - footerOverhead
+    const rowH          = Math.floor(availForGrid / 10)
+    if (rowH < ballSize + gap) {
+      ballSize = Math.max(MIN_BALL, Math.min(ballSize, rowH - MIN_GAP))
+      gap      = Math.max(MIN_GAP, Math.round(ballSize / 9))
     }
 
-    const rowH    = Math.floor(availGridH / 10)
-    this.ballGap  = Math.max(MIN_GAP, Math.floor(rowH * 0.10))
-    this.ballSize = Math.max(MIN_BALL, Math.min(36, rowH - this.ballGap))
+    this.ballGap  = gap
+    this.ballSize = ballSize
+    this.gridStartY = HEADER_END
 
-    // Also cap ball size against the available width so a narrow mobile
-    // viewport can't force 9 columns wider than the screen — width and
-    // height both constrain the ball size, whichever is tighter wins.
-    const maxBallSizeForWidth = Math.floor((W - 24) / this.cols) - this.ballGap
-    this.ballSize    = Math.max(10, Math.min(this.ballSize, maxBallSizeForWidth))
-    this.gridStartY  = gridTop
+    // Actual bottom edge of the ball grid, based on the real ball size.
+    const gridActualHeight = 9 * (this.ballSize + this.ballGap) + this.ballSize
+    const gridBottomActual = this.gridStartY + gridActualHeight
 
-    const totalGridW  = this.cols * (this.ballSize + this.ballGap) - this.ballGap
-    this.gridStartX   = (W - totalGridW) / 2 + this.ballSize / 2
+    // Footer sits right after the grid, not pinned to the canvas bottom —
+    // this is what removes the dead space. It's still clamped so the
+    // button never renders below the visible canvas on tall grids.
+    const countY = Math.min(
+      gridBottomActual + GRID_TO_COUNT_GAP + COUNT_H / 2,
+      H - BTN_MARGIN_B - BTN_H - COUNT_TO_BTN_GAP - COUNT_H / 2
+    )
+    this.btnY = Math.min(
+      countY + COUNT_H / 2 + COUNT_TO_BTN_GAP + BTN_H / 2,
+      H - BTN_MARGIN_B - BTN_H / 2
+    )
 
+    const totalGridW = this.cols * (this.ballSize + this.ballGap) - this.ballGap
+    this.gridStartX  = (W - totalGridW) / 2 + this.ballSize / 2
     // ── Title ──────────────────────────────────────────────────────────
     const titleSize = Math.round(Math.min(W * 0.072, 28))
 
