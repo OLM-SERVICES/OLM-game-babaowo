@@ -6,7 +6,18 @@ const BALL_COUNT  = 90
 const MIN_PICKS   = 2
 const MAX_PICKS   = 5
 const DRAW_COUNT  = 5
-const PAYOUT_TABLE: Record<number, number> = { 2: 217, 3: 400, 4: 900, 5: 2500 }
+// Matches OLM-Casino-Backend's services/games/babaOwo.js multiplierFor() at
+// its DEFAULT_EDGE (0.20): pick 2 is priced from true hypergeometric
+// probability (320.40×); picks 3-5's true odds are so long that the correct
+// price is capped at MAX_MULTIPLIER_CEILING (3000×) regardless — see that
+// file's header comment for why. This table used to say
+// {2:217, 3:400, 4:900, 5:2500} — the old unpriced values that same header
+// comment documents replacing (they implied house edges up to 99.99%, and
+// picks 4/5 were effectively unwinnable at those prices). Static on
+// purpose (this canvas has no live connection to admin-configured edge),
+// so it only drifts again if BABA_OWO's edge is ever changed in admin from
+// its current default.
+const PAYOUT_TABLE: Record<number, number> = { 2: 320.40, 3: 3000, 4: 3000, 5: 3000 }
 
 export class GameScene extends Phaser.Scene {
   private bridge!: CasinoBridge
